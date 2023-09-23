@@ -46,8 +46,9 @@ ttc0: Timers.Cadence_TTC @ sysbus 0xF8001000
 ttc1: Timers.Cadence_TTC @ sysbus 0xF8002000
     [0-2] -> gic@[37-39]
 
-privateTimer: Timers.CortexAPrivateTimer @ sysbus <0xF8F00600, +0x200>
+privateTimer: Timers.ARM_PrivateTimer @ sysbus 0xF8F00600
     -> gic#0@29
+    frequency: 667000000
 
 globalTimer: Timers.CortexAGlobalTimer @ sysbus 0xF8F00200
     -> gic#0@27
@@ -60,7 +61,7 @@ gic: IRQControllers.ARM_GenericInterruptController @ {
     0 -> cpu@0
     supportsTwoSecurityStates: false
     ProductIdentifier: 0x390
-    ArchitectureVersion: IRQControllers.ARM_GenericInterruptControllerVersion.GICv1
+    architectureVersion: IRQControllers.ARM_GenericInterruptControllerVersion.GICv1
     CPUInterfaceRevision: 0x2
     CPUInterfaceImplementer: 0x43B
 

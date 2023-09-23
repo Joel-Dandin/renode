@@ -5,96 +5,202 @@
 // Full license text is available in 'licenses/MIT.txt'.
 //
 
-`ifndef RENODE_PKG_VH_
-`define RENODE_PKG_VH_
+`timescale 1ns / 1ps
 
-package renode;
-  typedef longint address_t;
-  typedef longint data_t;
+import renode_pkg::renode_connection, renode_pkg::bus_connection, renode_pkg::timeout_checker;
+import renode_pkg::message_t, renode_pkg::address_t, renode_pkg::data_t, renode_pkg::valid_bits_e;
 
-  typedef enum int {
-`include "../src/renode_action_enumerators.txt"
-  } action_e;
+module renode #(
+    int unsigned BusControllersCount = 0,
+    int unsigned BusControllerTimeout = 100,
+    int unsigned BusPeripheralsCount = 0,
+    int unsigned InterruptsCount = 1
+) (
+    input logic clk,
+    input logic [InterruptsCount-1:0] interrupts
+);
+  renode_connection connection = new();
+  bus_connection bus_controller = new(connection);
+  bus_connection bus_peripheral = new(connection);
+  time renode_time = 0;
 
-  typedef struct {
-    action_e action;
-    address_t address;
-    data_t data;
-  } message_t;
-
-  import "DPI-C" function void renodeDPIConnect(
-    int receiverPort,
-    int senderPort,
-    string address
+  renode_interrupts #(
+      .InterruptsCount(InterruptsCount)
+  ) gpio (
+      .clk(clk),
+      .interrupts(interrupts),
+      .connection(connection)
   );
 
-  import "DPI-C" function void renodeDPIDisconnect();
+  always @(bus_peripheral.read_transaction_request) read_transaction();
+  always @(bus_peripheral.write_transaction_request) write_transaction();
 
-  import "DPI-C" function void renodeDPILog(
-    int logLevel,
-    string data
-  );
+  task static receive_and_handle_message();
+    message_t message;
+    bit did_receive;
 
-  import "DPI-C" function bit renodeDPIReceive(
-    output action_e action,
-    output address_t address,
-    output data_t data
-  );
+    // This task doesn't block elapse of a simulation time, when messages are being received and handled in an other place.
+    if (connection.exclusive_receive.try_get() != 0) begin
+      did_receive = connection.try_receive(message);
+      connection.exclusive_receive.put();
+      if (did_receive) handle_message(message);
+    end
+  endtask
 
-  import "DPI-C" function bit renodeDPISend(
-    action_e action,
-    address_t address,
-    data_t data
-  );
+  task static handle_message(message_t message);
+    bit is_handled;
 
-  import "DPI-C" function bit renodeDPISendToAsync(
-    action_e action,
-    address_t address,
-    data_t data
-  );
+    is_handled = 1;
+    case (message.action)
+      renode_pkg::resetPeripheral: reset();
+      renode_pkg::tickClock: sync_time(time'(message.data));
+      renode_pkg::writeRequestQuadWord: write_to_bus(message.address, renode_pkg::QuadWord, message.data);
+      renode_pkg::writeRequestDoubleWord: write_to_bus(message.address, renode_pkg::DoubleWord, message.data);
+      renode_pkg::writeRequestWord: write_to_bus(message.address, renode_pkg::Word, message.data);
+      renode_pkg::writeRequestByte: write_to_bus(message.address, renode_pkg::Byte, message.data);
+      renode_pkg::readRequestQuadWord: read_from_bus(message.address, renode_pkg::QuadWord);
+      renode_pkg::readRequestDoubleWord: read_from_bus(message.address, renode_pkg::DoubleWord);
+      renode_pkg::readRequestWord: read_from_bus(message.address, renode_pkg::Word);
+      renode_pkg::readRequestByte: read_from_bus(message.address, renode_pkg::Byte);
+      default: is_handled = 0;
+    endcase
 
-  class connection;
-    function void connect(int receiver_port, int sender_port, string address);
-      renodeDPIConnect(receiver_port, sender_port, address);
-      $display("Renode at %t: Connected to using the socket based interface", $time);
-    endfunction
+    if (!is_handled) connection.handle_message(message, is_handled);
+    if (!is_handled) connection.log(renode_pkg::LogWarning, $sformatf("Trying to handle the unsupported action (%0s)", message.action.name()));
+  endtask
 
-    function void handle_message(message_t message);
-      case (message.action)
-        renode::invalidAction: ;  // Intentionally left blank
-        renode::disconnect: disconnect();
-        default:
-        $display(
-            "Renode at %t: Trying to handle the unsupported action (%0s)",
-            $time,
-            message.action.name()
-        );
-      endcase
-    endfunction
+  task static reset();
+    // The reset just locks the connection without using it to avoid an unexpected behaviour.
+    // It also prevents from a message handling in the receive_and_handle_message until a reset deassertion.
+    connection.exclusive_receive.get();
 
-    function void log(int log_level, string message);
-      renodeDPILog(log_level, message);
-    endfunction
+    // The delay was added to avoid a race condition.
+    // It may occure when an event is triggered before executing a wait for this event.
+    // A non-blocking trigger, which is an alternative solution, isn't supported by Verilator.
+    #1 fork
+      begin
+        if (BusPeripheralsCount > 0)
+          bus_peripheral.reset_assert();
+      end
+      begin
+        if (BusControllersCount > 0)
+          bus_controller.reset_assert();
+      end
+      gpio.reset_assert();
+    join
 
-    function bit receive(output message_t message);
-      return renodeDPIReceive(message.action, message.address, message.data);
-    endfunction
+    fork
+      begin
+        if (BusPeripheralsCount > 0)
+          bus_peripheral.reset_deassert();
+      end
+      begin
+        if (BusControllersCount > 0)
+          bus_controller.reset_deassert();
+      end
+      gpio.reset_deassert();
+    join
 
-    function void send(message_t message);
-      if (!renodeDPISend(message.action, message.address, message.data))
-        $display("Renode at %t: Error! Unexpected channel disconnection", $time);
-    endfunction
+    connection.exclusive_receive.put();
+  endtask
 
-    function void sendToAsyncReceiver(message_t message);
-      if (!renodeDPISendToAsync(message.action, message.address, message.data))
-        $display("Renode at %t: Error! Unexpected channel disconnection", $time);
-    endfunction
+  task static sync_time(time time_to_elapse);
+    renode_time = renode_time + time_to_elapse;
+    while ($time < renode_time) @(clk);
 
-    local function void disconnect();
-      send(message_t'{ok, 0, 0});
-      renodeDPIDisconnect();
-    endfunction
-  endclass
-endpackage
+    connection.send_to_async_receiver(message_t'{renode_pkg::tickClock, 0, 0});
+    connection.log(renode_pkg::LogNoisy, $sformatf("Simulation time synced to %t", $realtime));
+  endtask
 
-`endif
+  task automatic read_from_bus(address_t address, valid_bits_e data_bits);
+    // This task is automatic to separate timeout handling between calls.
+    // The timeout is a reference variable to work around a Verilator bug.
+    data_t data = 0;
+    bit is_error = 0;
+    timeout_checker timeout = new();
+
+    fork
+      timeout.wait_until_timeout(clk, BusControllerTimeout);
+      bus_controller.read(address, data_bits, data, is_error);
+    join_any
+
+    if (timeout.is_error) begin
+      connection.log(renode_pkg::LogWarning, "Bus read access timeout");
+      is_error = 1;
+    end
+    if (is_error) connection.send(message_t'{renode_pkg::error, 0, 0});
+    else connection.send(message_t'{renode_pkg::readRequest, address, data});
+  endtask
+
+  task automatic write_to_bus(address_t address, valid_bits_e data_bits, data_t data);
+    // This task is automatic to separate timeout handling between calls.
+    // The timeout is a reference variable to work around a Verilator bug.
+    bit is_error = 0;
+    timeout_checker timeout = new();
+
+    fork
+      timeout.wait_until_timeout(clk, BusControllerTimeout);
+      bus_controller.write(address, data_bits, data, is_error);
+    join_any
+
+    if (timeout.is_error) begin
+      connection.log(renode_pkg::LogWarning, "Bus write access timeout");
+      is_error = 1;
+    end
+    if (is_error) connection.send(message_t'{renode_pkg::error, 0, 0});
+    else connection.send(message_t'{renode_pkg::ok, 0, 0});
+  endtask
+
+  task static read_transaction();
+    message_t message;
+
+    case (bus_peripheral.read_transaction_data_bits)
+      renode_pkg::Byte: message.action = renode_pkg::getByte;
+      renode_pkg::Word: message.action = renode_pkg::getWord;
+      renode_pkg::DoubleWord: message.action = renode_pkg::getDoubleWord;
+      renode_pkg::QuadWord: message.action = renode_pkg::getQuadWord;
+      default: begin
+        connection.fatal_error($sformatf("Renode doesn't support access with the 'b%b mask from a bus controller.", bus_peripheral.read_transaction_data_bits));
+        bus_peripheral.read_respond(0, 1);
+        return;
+      end
+    endcase
+    message.address = bus_peripheral.read_transaction_address;
+    message.data = 0;
+
+    connection.exclusive_receive.get();
+
+    connection.send_to_async_receiver(message);
+
+    connection.receive(message);
+    while (message.action != renode_pkg::writeRequest) begin
+      handle_message(message);
+      connection.receive(message);
+    end
+
+    connection.exclusive_receive.put();
+    bus_peripheral.read_respond(message.data, 0);
+  endtask
+
+  task static write_transaction();
+    message_t message;
+
+    case (bus_peripheral.write_transaction_data_bits)
+      renode_pkg::Byte: message.action = renode_pkg::pushByte;
+      renode_pkg::Word: message.action = renode_pkg::pushWord;
+      renode_pkg::DoubleWord: message.action = renode_pkg::pushDoubleWord;
+      renode_pkg::QuadWord: message.action = renode_pkg::pushQuadWord;
+      default: begin
+        connection.fatal_error($sformatf("Renode doesn't support access with the 'b%b mask from a bus controller.", bus_peripheral.read_transaction_data_bits));
+        bus_peripheral.write_respond(1);
+        return;
+      end
+    endcase
+    message.address = bus_peripheral.write_transaction_address;
+    message.data = bus_peripheral.write_transaction_data;
+
+    connection.send_to_async_receiver(message);
+    bus_peripheral.write_respond(0);
+  endtask
+endmodule
+

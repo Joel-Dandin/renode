@@ -46,39 +46,7 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
 
         public void Dispose()
         {
-            disposeInitiated = true;
-
-            asyncSocketComunicator.CancelCommunication();
-            pauseMRES?.Dispose();
-
-            if(IsConnected)
-            {
-                parentElement.DebugLog("Sending 'Disconnect' message to close peripheral gracefully...");
-                TrySendMessage(new ProtocolMessage(ActionType.Disconnect, 0, 0));
-                mainSocketComunicator.CancelCommunication();
-            }
-
-            if(verilatedProcess != null)
-            {
-                // Ask verilatedProcess to close, kill if it doesn't
-                if(!verilatedProcess.HasExited)
-                {
-                    parentElement.DebugLog($"Verilated peripheral '{simulationFilePath}' is still working...");
-                    if(verilatedProcess.WaitForExit(500))
-                    {
-                        parentElement.DebugLog("Verilated peripheral exited gracefully.");
-                    }
-                    else
-                    {
-                        KillVerilatedProcess();
-                        parentElement.Log(LogLevel.Warning, "Verilated peripheral had to be killed.");
-                    }
-                }
-                verilatedProcess.Dispose();
-            }
-
-            mainSocketComunicator.Dispose();
-            asyncSocketComunicator.Dispose();
+            Abort();
         }
 
         public void Connect()
@@ -137,14 +105,62 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
 
         public void Abort()
         {
-            abort = true;
+            // This method is thread-safe and can be called many times.
+            if(Interlocked.CompareExchange(ref disposeInitiated, 1, 0) != 0)
+            {
+                return;
+            }
+
             asyncSocketComunicator.CancelCommunication();
-            KillVerilatedProcess();
+            lock(receiveThreadLock)
+            {
+                if(receiveThread.IsAlive)
+                {
+                    Resume();
+                    receiveThread.Join(timeout);
+                }
+            }
+            pauseMRES.Dispose();
+
+            if(IsConnected)
+            {
+                parentElement.DebugLog("Sending 'Disconnect' message to close peripheral gracefully...");
+                TrySendMessage(new ProtocolMessage(ActionType.Disconnect, 0, 0));
+                mainSocketComunicator.CancelCommunication();
+            }
+
+            if(verilatedProcess != null)
+            {
+                // Ask verilatedProcess to close, kill if it doesn't
+                if(!verilatedProcess.HasExited)
+                {
+                    parentElement.DebugLog($"Verilated peripheral '{simulationFilePath}' is still working...");
+                    if(verilatedProcess.WaitForExit(500))
+                    {
+                        parentElement.DebugLog("Verilated peripheral exited gracefully.");
+                    }
+                    else
+                    {
+                        KillVerilatedProcess();
+                        parentElement.Log(LogLevel.Warning, "Verilated peripheral had to be killed.");
+                    }
+                }
+                verilatedProcess.Dispose();
+            }
+
+            mainSocketComunicator.Dispose();
+            asyncSocketComunicator.Dispose();
         }
 
         public void Start()
         {
-            receiveThread.Start();
+            lock(receiveThreadLock)
+            {
+                if(!receiveThread.IsAlive && disposeInitiated == 0)
+                {
+                    receiveThread.Start();
+                }
+            }
         }
 
         public void Pause()
@@ -158,6 +174,22 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
         }
 
         public bool IsConnected => mainSocketComunicator.Connected;
+
+        public string Context
+        {
+            get
+            {
+                return this.context;
+            }
+            set
+            {
+                if(IsConnected)
+                {
+                    throw new RecoverableException("Context cannot be modified while connected");
+                }
+                this.context = (value == "" || value == null) ? "{0} {1} {2}" : value;
+            }
+        }
 
         public string SimulationFilePath
         {
@@ -174,31 +206,39 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
             }
         }
 
-        public string ConnectionParameters => $"{mainSocketComunicator.ListenerPort} {asyncSocketComunicator.ListenerPort} {address}"; 
+        public string ConnectionParameters
+        {
+            get
+            {
+                try
+                {
+                    return String.Format(this.context,
+                        mainSocketComunicator.ListenerPort, asyncSocketComunicator.ListenerPort, address);
+                }
+                catch (FormatException e)
+                {
+                    throw new RecoverableException(e.Message);
+                }
+            }
+        }
 
         private void ReceiveLoop()
         {
-            while(!disposeInitiated && asyncSocketComunicator.Connected)
+            while(asyncSocketComunicator.Connected)
             {
-                if(asyncSocketComunicator.TryReceiveMessage(out var message) && !disposeInitiated)
-                {
-                    pauseMRES.Wait();
-                    if(!disposeInitiated)
-                    {
-                        HandleReceived(message);
-                    }
-                }
-                else if(disposeInitiated || abort)
+                pauseMRES.Wait();
+                if(disposeInitiated != 0)
                 {
                     break;
+                }
+                else if(asyncSocketComunicator.TryReceiveMessage(out var message))
+                {
+                    HandleReceived(message);
                 }
                 else
                 {
                     AbortAndLogError("Connection error!");
                 }
-
-                // Pause in ReceiveLoop() has to be handled manually
-                pauseMRES?.Wait();
             }
         }
 
@@ -232,13 +272,13 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
 
         private void AbortAndLogError(string message)
         {
-            if(disposeInitiated)
+            if(disposeInitiated != 0)
             {
                 return;
             }
             parentElement.Log(LogLevel.Error, message);
             Abort();
-            
+
             // Due to deadlock, we need to abort CPU instead of pausing emulation.
             throw new CpuAbortException();
         }
@@ -283,9 +323,9 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
             }
         }
 
-        private bool abort;
-        private volatile bool disposeInitiated;
+        private volatile int disposeInitiated;
         private string simulationFilePath;
+        private string context = "{0} {1} {2}";
         private Process verilatedProcess;
         private SocketComunicator mainSocketComunicator;
         private SocketComunicator asyncSocketComunicator;
@@ -295,6 +335,7 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
         private readonly int timeout;
         private readonly string address;
         private readonly Thread receiveThread;
+        private readonly object receiveThreadLock = new object();
         private readonly ManualResetEventSlim pauseMRES;
 
         private const string DefaultAddress = "127.0.0.1";
@@ -421,7 +462,7 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
             {
                 try
                 {
-                    task.Wait(timeout);
+                    task.Wait(timeout, channelTaskFactory.CancellationToken);
                 }
                 // Exceptions thrown from the task are always packed in AggregateException
                 catch(AggregateException aggregateException)
@@ -430,6 +471,10 @@ namespace Antmicro.Renode.Plugins.VerilatorPlugin.Connection
                     {
                         logger.DebugLog("Send/Receive task exception: {0}", innerException.Message);
                     }
+                }
+                catch(OperationCanceledException)
+                {
+                    logger.DebugLog("Send/Receive task was canceled.");
                 }
 
                 if(task.Status != TaskStatus.RanToCompletion || task.Result != size)

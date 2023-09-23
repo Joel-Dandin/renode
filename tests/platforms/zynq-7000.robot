@@ -12,6 +12,9 @@ ${MTD1_BLOCK_DEV}                   /dev/mtdblock1
 ${CADENCE_XSPI_BIN}                 @https://dl.antmicro.com/projects/renode/zynq--cadence-xspi-vmlinux-s_14143972-449b7a25d689a4b6e2adc9ae4c3abbf375ccc70c
 ${CADENCE_XSPI_ROOTFS}              @https://dl.antmicro.com/projects/renode/zynq--cadence-xspi-rootfs.ext2-s_16777216-d1dabbf627ba4846963c97db8d27f5d4f454e72b
 ${CADENCE_XSPI_DTB}                 @https://dl.antmicro.com/projects/renode/zynq--cadence-xspi.dtb-s_11045-f5e1772bb1d19234ce6f0b8ec77c2f970660c7bb
+${CADENCE_XSPI_AUTOCOMMAND_BIN}     @https://dl.antmicro.com/projects/renode/zynq--cadence-xspi-vmlinux-s_14386012-ff7f3dfd09804979deca966c66127df7495c5318
+${CADENCE_XSPI_AUTOCOMMAND_ROOTFS}  @https://dl.antmicro.com/projects/renode/zynq--cadence-xspi-rootfs.ext2-s_16777216-a05d6421ce699832c6f372f2001aaa13b054c02b
+${CADENCE_XSPI_AUTOCOMMAND_DTB}     @https://dl.antmicro.com/projects/renode/zynq--cadence-xspi.dtb-s_11045-f5e1772bb1d19234ce6f0b8ec77c2f970660c7bb
 ${CADENCE_XSPI_PERIPHERAL}          SEPARATOR=\n
 ...                                 """
 ...                                 xspi: SPI.Cadence_xSPI @ {
@@ -101,6 +104,27 @@ Should Erase Flash Memory
     Wait For Prompt On Uart         ${PROMPT}
     Check Exit Code
     Execute Linux Command           umount ${mount_path}
+
+Should Access SPI Flash Memory Via Additional Cadence xSPI 
+    Create Machine
+    Execute Command                 machine LoadPlatformDescriptionFromString ${CADENCE_XSPI_PERIPHERAL}
+    Start Emulation
+
+    Boot And Login
+    # Suppress messages from the kernel space
+    Execute Linux Command           echo 0 > /proc/sys/kernel/printk
+
+    Write Line To Uart              ls --color=never -1 /dev/
+    Wait For Line On Uart           mtd0
+    Wait For Prompt On Uart         ${PROMPT}
+    Check Exit Code
+
+    Generate Random File            ${SAMPLE_FILENAME}  5
+
+    Should Mount Flash Memory And Write File  ${MTD0_DEV}  ${MTD0_BLOCK_DEV}  ${FLASH_MOUNT}  ${SAMPLE_FILENAME}
+    Should Mount Flash Memory And Compare Files  ${MTD0_BLOCK_DEV}  ${FLASH_MOUNT}  ${SAMPLE_FILENAME}
+    Should Erase Flash Memory       ${MTD0_DEV}  ${MTD0_BLOCK_DEV}  ${FLASH_MOUNT}
+
 
 *** Test Cases ***
 Should Boot And Login
@@ -200,26 +224,16 @@ Time Should Elapse
     ${seconds}=                     Get Linux Elapsed Seconds
     Should Be True                  ${seconds_before} < ${seconds}
 
-Should Access Micron SPI Flash Memory Via Additional Cadence xSPI IP
+Should Access SPI Flash Memory Via Additional Cadence xSPI IP
     Execute Command                 $bin=${CADENCE_XSPI_BIN}
     Execute Command                 $rootfs=${CADENCE_XSPI_ROOTFS}
     Execute Command                 $dtb=${CADENCE_XSPI_DTB}
 
-    Create Machine
-    Execute Command                 machine LoadPlatformDescriptionFromString ${CADENCE_XSPI_PERIPHERAL}
-    Start Emulation
+    Should Access SPI Flash Memory Via Additional Cadence xSPI 
 
-    Boot And Login
-    # Suppress messages from the kernel space
-    Execute Linux Command           echo 0 > /proc/sys/kernel/printk
+Should Access SPI Flash Memory Via Additional Cadence xSPI IP With The Auto Command Patch
+    Execute Command                 $bin=${CADENCE_XSPI_AUTOCOMMAND_BIN}
+    Execute Command                 $rootfs=${CADENCE_XSPI_AUTOCOMMAND_ROOTFS}
+    Execute Command                 $dtb=${CADENCE_XSPI_AUTOCOMMAND_DTB}
 
-    Write Line To Uart              ls --color=never -1 /dev/
-    Wait For Line On Uart           mtd0
-    Wait For Prompt On Uart         ${PROMPT}
-    Check Exit Code
-
-    Generate Random File            ${SAMPLE_FILENAME}  5
-
-    Should Mount Flash Memory And Write File  ${MTD0_DEV}  ${MTD0_BLOCK_DEV}  ${FLASH_MOUNT}  ${SAMPLE_FILENAME}
-    Should Mount Flash Memory And Compare Files  ${MTD0_BLOCK_DEV}  ${FLASH_MOUNT}  ${SAMPLE_FILENAME}
-    Should Erase Flash Memory       ${MTD0_DEV}  ${MTD0_BLOCK_DEV}  ${FLASH_MOUNT}
+    Should Access SPI Flash Memory Via Additional Cadence xSPI 

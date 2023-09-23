@@ -1,5 +1,7 @@
 ********************************** Variables **********************************
 
+${URI}                                 @https://dl.antmicro.com/projects/renode
+
 ### CPSR
 
 ${CPSR_N_MASK}                         ${{ 0x1 << 31 }}
@@ -366,7 +368,8 @@ Current System Register Value Should Be
 ### Auxiliary Keywords (not general keywords used to simplify test cases)
 
 Initialize Emulation
-    [Arguments]                                            ${exec_mode}=Continuous  ${pl}=default  ${pc}=default  ${elf}=default  ${binary}=default
+    [Arguments]                                            ${exec_mode}=Continuous  ${pl}=default  ${pc}=default  ${elf}=default
+    ...                                                    ${binary}=default  ${create_uart_tester}=False
 
     # Tests assume Renode prints HEX numbers.
     Execute Command                                        numbersMode Hexadecimal
@@ -391,6 +394,11 @@ Initialize Emulation
         Current PC Should Be                               ${pc}
     END
 
+    IF  ${create_uart_tester}
+        Create Terminal Tester                             sysbus.uart0
+        Execute Command                                    showAnalyzer sysbus.uart0
+    END
+
 Check If CPSR Contains Reset Values
     Current CPSR Field Should Be                           A  ${CPSR_A_MASK}
     Current CPSR Field Should Be                           I  ${CPSR_I_MASK}
@@ -407,19 +415,19 @@ Add Dummy Memory At Hivecs Base Address
     Execute Command                                        machine LoadPlatformDescriptionFromString ${HIVECS_DUMMY_MEMORY}
 
 Check Protection Region Address Register Access Through Selector Register
-    [Arguments]                                            ${direct_addr_reg}  ${selected_addr_reg}  ${selector_reg}  ${region_num}
-    ${EXPECTED_REG_VALUE}=                                 Set Variable  0xDEADBEEF
-
+    [Arguments]                                            ${direct_addr_reg}  ${selected_addr_reg}  ${selector_reg}  ${region_num}  ${reserved_mask}
+    ${WRITE_VALUE}                                         Set Variable  0xFFFFFFFF
+    ${EXPECTED_REG_VALUE}=                                 Evaluate  0xFFFFFFFF ^ ${reserved_mask}
     Set Current System Register Value                      ${selector_reg}  ${region_num}
-    Set Current System Register Value                      ${selected_addr_reg}  ${expected_reg_value}
+    Set Current System Register Value                      ${selected_addr_reg}  ${WRITE_VALUE}
     ${reg_value}=                                          Get Current System Register Value  ${direct_addr_reg}
     Should Be Equal As Integers                            ${reg_value}  ${EXPECTED_REG_VALUE}
 
 Check Protection Region Address Register Access Through Direct Register
-    [Arguments]                                            ${direct_addr_reg}  ${selected_addr_reg}  ${region_selector_reg}  ${region_num}
-    ${EXPECTED_REG_VALUE}=                                 Set Variable  0xDEADBEEF
-
-    Set Current System Register Value                      ${direct_addr_reg}  ${EXPECTED_REG_VALUE}
+    [Arguments]                                            ${direct_addr_reg}  ${selected_addr_reg}  ${region_selector_reg}  ${region_num}  ${reserved_mask}
+    ${WRITE_VALUE}                                         Set Variable  0xFFFFFFFF
+    ${EXPECTED_REG_VALUE}=                                 Evaluate  0xFFFFFFFF ^ ${reserved_mask}
+    Set Current System Register Value                      ${direct_addr_reg}  ${WRITE_VALUE}
     Set Current System Register Value                      ${region_selector_reg}  ${region_num}
     ${reg_value}=                                          Get Current System Register Value  ${selected_addr_reg}
     Should Be Equal As Integers                            ${reg_value}  ${EXPECTED_REG_VALUE}
@@ -533,15 +541,16 @@ Check Access To SPSR_hyp Register Template
 
     Execute Command                                        sysbus.cpu Step
     IF  "${pl}" == "Hypervisor" or "${pl}" == "HYP"
-        # SPSR_hyp access from Hypervisor Privilege Level causes
-        # Undefined Instruction Exception handled at Hypervisor Privilege Level
+        # SPSR_hyp accesses from Hypervisor mode are UNPREDICTABLE. However, a common Cortex-R52 initialization procedure,
+        # that works correctly on hardware and in FVP, sets it so Renode also allows for such accesses.
         Current Privilege Level Should Be                  Hypervisor
+        Current PC Should Be                                   0x8004
     ELSE
         # SPSR_hyp access from other Privilege Levels causes
         # Undefined Instruction Exception handled at Undefined Privilege Level
         Current Privilege Level Should Be                  Undefined
+        Current PC Should Be                                   0x4
     END
-    Current PC Should Be                                   0x4
 
     [Teardown]                                             Reset Emulation
 
@@ -641,9 +650,11 @@ Check Protection Region Address Register Access Template
     IF  "${reg_type}" == "Base" or "${reg_type}" == "BAR"
         ${direct_addr_reg}=                                Set Variable  PRBAR
         ${selector_reg}=                                   Set Variable  PRSELR
+        ${reserved_mask}=                                  Set Variable  0x20
     ELSE IF  "${reg_type}" == "Limit" or "${reg_type}" == "LAR"
         ${direct_addr_reg}=                                Set Variable  PRLAR
         ${selector_reg}=                                   Set Variable  PRSELR
+        ${reserved_mask}=                                  Set Variable  0x30
     ELSE
         Fail  "Incorrect Protection Region Type"
     END
@@ -653,8 +664,8 @@ Check Protection Region Address Register Access Template
         ${selected_addr_reg}=                              Catenate  SEPARATOR=   H  ${selected_addr_reg}
         ${selector_reg}=                                   Catenate  SEPARATOR=   H  ${selector_reg}
     END
-    Check Protection Region Address Register Access Through Selector Register  ${direct_addr_reg}  ${selected_addr_reg}  ${selector_reg}  ${region_num}
-    Check Protection Region Address Register Access Through Direct Register  ${direct_addr_reg}  ${selected_addr_reg}  ${selector_reg}  ${region_num}
+    Check Protection Region Address Register Access Through Selector Register  ${direct_addr_reg}  ${selected_addr_reg}  ${selector_reg}  ${region_num}  ${reserved_mask}
+    Check Protection Region Address Register Access Through Direct Register  ${direct_addr_reg}  ${selected_addr_reg}  ${selector_reg}  ${region_num}  ${reserved_mask}
 
     [Teardown]                                             Reset Emulation
 
@@ -818,8 +829,8 @@ Check Protection Region Address Register Access
 Run Zephyr Hello World Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/aemv8r_aarch32--zephyr-hello_world.elf-s_390996-d824c18d2044d741b7761f7ab27d3b49fae9a9e4
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/aemv8r_aarch32--zephyr-hello_world.elf-s_390996-d824c18d2044d741b7761f7ab27d3b49fae9a9e4
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              *** Booting Zephyr OS build ${SPACE}***
@@ -828,8 +839,8 @@ Run Zephyr Hello World Sample
 Run Zephyr Synchronization Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-synchronization.elf-s_402972-0cd785e0ec32a0c9106dec5369ad36e4b4fb386f
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-synchronization.elf-s_402972-0cd785e0ec32a0c9106dec5369ad36e4b4fb386f
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -841,8 +852,8 @@ Run Zephyr Synchronization Sample
 Run Zephyr Philosophers Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-philosophers.elf-s_500280-b9bbb31c64dec3f3273535be657b8e4d7ca182f9
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-philosophers.elf-s_500280-b9bbb31c64dec3f3273535be657b8e4d7ca182f9
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Philosopher 0.*THINKING  treatAsRegex=true
@@ -867,8 +878,8 @@ Run Zephyr Philosophers Sample
 Run Zephyr User Space Hello World Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-userspace_hello_world_user.elf-s_1039836-cbc30725dd16eeb46c01b921f0c96e6a927c3669
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-userspace_hello_world_user.elf-s_1039836-cbc30725dd16eeb46c01b921f0c96e6a927c3669
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -877,8 +888,8 @@ Run Zephyr User Space Hello World Sample
 Run Zephyr User Space Prod Consumer Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-userspace_prod_consumer.elf-s_1291928-637dbadb671ac5811ed6390b6be09447e586bf82
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-userspace_prod_consumer.elf-s_1291928-637dbadb671ac5811ed6390b6be09447e586bf82
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -887,9 +898,8 @@ Run Zephyr User Space Prod Consumer Sample
 Run Zephyr User Space Shared Mem Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-userspace_shared_mem.elf-s_1096936-6da5eb0f22c62b0a23f66f68a4ba51b9ece6deff
-    Create Log Tester                  10
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-userspace_shared_mem.elf-s_1096936-6da5eb0f22c62b0a23f66f68a4ba51b9ece6deff
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -907,8 +917,8 @@ Run Zephyr User Space Shared Mem Sample
 Run Zephyr Basic Sys Heap Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-basic_sys_heap.elf-s_433924-f490ec4c563a8f553702b7203956bf961242d91b
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-basic_sys_heap.elf-s_433924-f490ec4c563a8f553702b7203956bf961242d91b
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -920,8 +930,8 @@ Run Zephyr Basic Sys Heap Sample
 Run Zephyr Compression LZ4 Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-compression_lz4.elf-s_840288-1558c5d70a6fa74ffebf6fe8a31398d29af0d087
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-compression_lz4.elf-s_840288-1558c5d70a6fa74ffebf6fe8a31398d29af0d087
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -931,8 +941,8 @@ Run Zephyr Compression LZ4 Sample
 Run Zephyr Cpp Synchronization Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-cpp_cpp_synchronization.elf-s_488868-3ac689f04acc81aaf0e10b7979f12a8d66ba73d7
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-cpp_cpp_synchronization.elf-s_488868-3ac689f04acc81aaf0e10b7979f12a8d66ba73d7
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -946,8 +956,8 @@ Run Zephyr Cpp Synchronization Sample
 Run Zephyr Kernel Condition Variables Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-kernel_condition_variables_condvar.elf-s_478952-6ef5d598b47ef8dd8a624ffb85e4cb60fc2c6736
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-kernel_condition_variables_condvar.elf-s_478952-6ef5d598b47ef8dd8a624ffb85e4cb60fc2c6736
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
@@ -956,9 +966,29 @@ Run Zephyr Kernel Condition Variables Sample
 Run Zephyr Kernel Condition Variables Simple Sample
     [Tags]                             Demos
 
-    Initialize Emulation               elf=@https://dl.antmicro.com/projects/renode/fvp_baser_aemv8r_aarch32--zephyr-kernel_condition_variables_simple.elf-s_476108-e8c6ccae3076acc95f23fc3c726b4bcb8e20fff1
-    Create Terminal Tester             sysbus.uart0
+    Initialize Emulation               elf=${URI}/fvp_baser_aemv8r_aarch32--zephyr-kernel_condition_variables_simple.elf-s_476108-e8c6ccae3076acc95f23fc3c726b4bcb8e20fff1
+    ...                                create_uart_tester=True
     Start Emulation
 
     Wait For Line On Uart              Booting Zephyr OS build
     Wait For Line On Uart              [thread main] done == 20 so everyone is done
+
+Test Reading From Overlapping MPU Regions
+    [Tags]                             Exceptions
+
+    Initialize Emulation               elf=${URI}/zephyr_pmsav8-overlapping-regions-test_fvp_baser_aemv8r_aarch32.elf-s_573792-14ad334a607d98b602f0f72522c8c22ba986b5da
+    ...                                create_uart_tester=True
+
+    # The app will try to load from 0xCAFEBEE0 in main. It was built with an additional region in
+    # MPU <0xCAFEB000,0xCAFEBFFF> that overlaps a default DEVICE region <0x80000000,0xFFFFFFFF>.
+    Execute Command                    sysbus Tag <0xCAFEBEE0,0xCAFEBEE3> "MPU_TEST" 0xDEADCAFE
+
+    Start Emulation
+
+    Wait For Line On Uart              *** Booting Zephyr OS build
+    Wait For Line On Uart              Reading value from an address with overlapping MPU regions...
+
+    # 4 is a fault code for the Translation Fault. It doesn't have a nice log in Zephyr.
+    # See dump_fault in arch/arm/core/aarch32/cortex_a_r/fault.c.
+    Wait For Line On Uart              DATA ABORT
+    Wait For Line On Uart              Unknown (4)

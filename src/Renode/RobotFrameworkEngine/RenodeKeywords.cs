@@ -268,11 +268,12 @@ namespace Antmicro.Renode.RobotFramework
         }
 
         [RobotFrameworkKeyword]
-        public string WaitForLogEntry(string pattern, float? timeout = null, bool keep = false, bool treatAsRegex = false, bool pauseEmulation = false)
+        public string WaitForLogEntry(string pattern, float? timeout = null, bool keep = false, bool treatAsRegex = false,
+            bool pauseEmulation = false, LogLevel level = null)
         {
             CheckLogTester();
 
-            var result = logTester.WaitForEntry(pattern, out var bufferedMessages, timeout, keep, treatAsRegex, pauseEmulation);
+            var result = logTester.WaitForEntry(pattern, out var bufferedMessages, timeout, keep, treatAsRegex, pauseEmulation, level);
             if(result == null)
             {
                 var logMessages = string.Join("\n ", bufferedMessages);
@@ -282,11 +283,13 @@ namespace Antmicro.Renode.RobotFramework
         }
 
         [RobotFrameworkKeyword]
-        public void ShouldNotBeInLog(String pattern, float? timeout = null, bool treatAsRegex = false)
+        public void ShouldNotBeInLog(String pattern, float? timeout = null, bool treatAsRegex = false, LogLevel level = null)
         {
             CheckLogTester();
 
-            var result = logTester.WaitForEntry(pattern, out var _, timeout, true, treatAsRegex);
+            // Passing `level` as a named argument causes a compiler crash in Mono 6.8.0.105+dfsg-3.4
+            // from Debian
+            var result = logTester.WaitForEntry(pattern, out var _, timeout, true, treatAsRegex, false, level);
             if(result != null)
             {
                 throw new KeywordException($"Unexpected line detected in the log: {result}");

@@ -12,7 +12,9 @@ using Antmicro.Renode.Peripherals;
 
 namespace Antmicro.Renode.RobotFramework
 {
-    internal abstract class TestersProvider<TTester, TPeripheral> where TPeripheral: class, IEmulationElement
+    internal abstract class TestersProvider<TTester, TPeripheral>
+        where TPeripheral: class, IEmulationElement
+        where TTester: class
     {
         public TestersProvider()
         {
@@ -32,7 +34,7 @@ namespace Antmicro.Renode.RobotFramework
         {
             lock(testers)
             {
-                Machine machineObject;
+                IMachine machineObject;
                 if(machine == null)
                 {
                     if(!EmulationManager.Instance.CurrentEmulation.Machines.Any())
@@ -75,8 +77,27 @@ namespace Antmicro.Renode.RobotFramework
                 var tester = creator(peripheral);
                 peripheralsWithTesters.Add(peripheral);
                 testers.Add(peripheralsWithTesters.Count - 1, tester);
-                
+
                 return peripheralsWithTesters.Count - 1;
+            }
+        }
+
+        public void SetDefaultTesterId(int? id)
+        {
+            lock(testers)
+            {
+                if(id.HasValue)
+                {
+                    if(!testers.TryGetValue(id.Value, out var tester))
+                    {
+                        throw new KeywordException($"Tester #{id.Value} was not found. Create a tester before setting it as default");
+                    }
+                    defaultTester = tester;
+                }
+                else
+                {
+                    defaultTester = null;
+                }
             }
         }
 
@@ -84,18 +105,23 @@ namespace Antmicro.Renode.RobotFramework
         {
             lock(testers)
             {
-                TTester tester;
                 if(testerId == null)
                 {
+                    if(defaultTester != null)
+                    {
+                        return defaultTester;
+                    }
+
                     if(testers.Count != 1)
                     {
                         throw new KeywordException(testers.Count == 0
                             ? "There are no testers available."
                             : "There is more than one tester available - please specify ID of the desired tester.");
                     }
-                    tester = testers.Single().Value;
+                    return testers.Single().Value;
                 }
-                else if(!testers.TryGetValue(testerId.Value, out tester))
+
+                if(!testers.TryGetValue(testerId.Value, out var tester))
                 {
                     throw new KeywordException("Tester for given ID={0} was not found. Did you forget to create the tester?", testerId);
                 }
@@ -103,6 +129,7 @@ namespace Antmicro.Renode.RobotFramework
             }
         }
 
+        private TTester defaultTester;
         private readonly Dictionary<int, TTester> testers;
         private readonly List<TPeripheral> peripheralsWithTesters;
     }

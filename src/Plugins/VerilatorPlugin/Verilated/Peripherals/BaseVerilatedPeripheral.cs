@@ -20,6 +20,7 @@ namespace Antmicro.Renode.Peripherals.Verilated
     public class BaseVerilatedPeripheral : IPeripheral, IDisposable, IHasOwnLife
     {
         public BaseVerilatedPeripheral(string simulationFilePathLinux = null, string simulationFilePathWindows = null, string simulationFilePathMacOS = null,
+            string simulationContextLinux = null, string simulationContextWindows = null, string simulationContextMacOS = null,
             int timeout = DefaultTimeout, string address = null)
         {
             started = false;
@@ -35,6 +36,10 @@ namespace Antmicro.Renode.Peripherals.Verilated
             SimulationFilePathLinux = simulationFilePathLinux;
             SimulationFilePathWindows = simulationFilePathWindows;
             SimulationFilePathMacOS = simulationFilePathMacOS;
+
+            SimulationContextLinux = simulationContextLinux;
+            SimulationContextWindows = simulationContextWindows;
+            SimulationContextMacOS = simulationContextMacOS;
         }
 
         public Action<ProtocolMessage> OnReceive { get; set; }
@@ -46,6 +51,11 @@ namespace Antmicro.Renode.Peripherals.Verilated
 
         public void Connect()
         {
+            if(verilatorConnection.IsConnected)
+            {
+                this.Log(LogLevel.Warning, "The Verilated peripheral is already connected.");
+                return;
+            }
             verilatorConnection.Connect();
         }
 
@@ -66,6 +76,60 @@ namespace Antmicro.Renode.Peripherals.Verilated
         }
 
         public bool IsConnected => verilatorConnection.IsConnected;
+
+        public string SimulationContextLinux
+        {
+            get
+            {
+                return SimulationContext;
+            }
+            set
+            {
+#if PLATFORM_LINUX
+                SimulationContext = value;
+#endif
+            }
+        }
+
+        public string SimulationContextWindows
+        {
+            get
+            {
+                return SimulationContext;
+            }
+            set
+            {
+#if PLATFORM_WINDOWS
+                SimulationContext = value;
+#endif
+            }
+        }
+
+        public string SimulationContextMacOS
+        {
+            get
+            {
+                return SimulationContext;
+            }
+            set
+            {
+#if PLATFORM_OSX
+                SimulationContext = value;
+#endif
+            }
+        }
+
+        public string SimulationContext
+        {
+            get
+            {
+                return verilatorConnection.Context;
+            }
+            set
+            {
+                verilatorConnection.Context = value;
+            }
+        }
 
         public string SimulationFilePathLinux
         {
@@ -185,7 +249,7 @@ namespace Antmicro.Renode.Peripherals.Verilated
         {
             verilatorConnection.HandleMessage();
         }
-        
+
         public const int DefaultTimeout = 3000;
 
         protected virtual void HandleInterrupt(ProtocolMessage interrupt)
@@ -213,17 +277,19 @@ namespace Antmicro.Renode.Peripherals.Verilated
 
         protected void AbortAndLogError(string message)
         {
+            // It's safe to call AbortAndLogError from any thread.
+            // Calling it from many threads may cause throwing more than one exception.
             if(disposeInitiated)
             {
                 return;
             }
             this.Log(LogLevel.Error, message);
             verilatorConnection.Abort();
-            
+
             // Due to deadlock, we need to abort CPU instead of pausing emulation.
             throw new CpuAbortException();
         }
-        
+
         protected string simulationFilePath;
         protected IVerilatorConnection verilatorConnection;
 
@@ -234,6 +300,6 @@ namespace Antmicro.Renode.Peripherals.Verilated
         }
 
         private bool started;
-        private bool disposeInitiated;
+        private volatile bool disposeInitiated;
     }
 }

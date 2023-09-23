@@ -399,7 +399,7 @@ class RobotTestSuite(object):
             return True
 
         print('Running ' + self.path)
-        result = True
+        result = None
 
         # in non-parallel runs there is only one Renode process for all runs
         # see: prepare
@@ -408,18 +408,30 @@ class RobotTestSuite(object):
         else:
             proc = None
 
+        def get_result():
+            return result if result is not None else True
+
+        start_timestamp = monotonic()
+
         if any(self.tests_without_hotspots):
-            result = result and self._run_inner(options.fixture, None, self.tests_without_hotspots, options)
+            result = get_result() and self._run_inner(options.fixture, None, self.tests_without_hotspots, options)
         if any(self.tests_with_hotspots):
             for hotspot in RobotTestSuite.hotspot_action:
                 if options.hotspot and options.hotspot != hotspot:
                     continue
-                result = result and self._run_inner(options.fixture, hotspot, self.tests_with_hotspots, options)
+                result = get_result() and self._run_inner(options.fixture, hotspot, self.tests_with_hotspots, options)
 
-        endTimestamp = monotonic()
-        print('Suite ' + self.path + (' finished successfully!' if result else ' failed!') + ' in ' + str(round(endTimestamp - self.startTimestamp, 2)) + ' seconds.', flush=True)
+        end_timestamp = monotonic()
+
+        if result is None:
+            print(f'No tests executed for suite {self.path}', flush=True)
+        else:
+            status = 'finished successfully' if result else 'failed'
+            exec_time = round(end_timestamp - start_timestamp, 2)
+            print(f'Suite {self.path} {status} in {exec_time} seconds.', flush=True)
+
         self._close_remote_server(proc, options)
-        return result
+        return get_result()
 
 
     def _get_dependencies(self, test_case):
@@ -485,6 +497,8 @@ class RobotTestSuite(object):
             variables.append('HOLD_ON_ERROR:True')
         if options.execution_metrics:
             variables.append('CREATE_EXECUTION_METRICS:True')
+        if options.save_logs == "always":
+            variables.append('SAVE_LOGS_WHEN:Always')
         if options.runner == 'dotnet':
             variables.append('BINARY_NAME:Renode.dll')
             variables.append('RENODE_PID:{}'.format(self.renode_pid))
@@ -499,7 +513,7 @@ class RobotTestSuite(object):
         if fixture:
             test_cases = [x for x in test_cases if fnmatch.fnmatch(x[1], '*' + fixture + '*')]
             if len(test_cases) == 0:
-                return True
+                return None
             deps = set()
             for test_name in (t[0] for t in test_cases):
                 deps.update(self._get_dependencies(test_name))
@@ -513,7 +527,6 @@ class RobotTestSuite(object):
 
         metadata = {"HotSpot_Action": hotspot if hotspot else '-'}
         log_file = os.path.join(options.results_directory, 'results-{0}{1}.robot.xml'.format(file_name, '_' + hotspot if hotspot else ''))
-        self.startTimestamp = monotonic()
 
         keywords_path = os.path.abspath(os.path.join(this_path, "renode-keywords.robot"))
         keywords_path = keywords_path.replace(os.path.sep, "/")  # Robot wants forward slashes even on Windows

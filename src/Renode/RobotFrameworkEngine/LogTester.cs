@@ -25,7 +25,7 @@ namespace Antmicro.Renode.RobotFramework
             EmulationManager.Instance.CurrentEmulation.CurrentLogger.SynchronousLogging = true;
 
             this.defaultTimeout = virtualSecondsTimeout;
-            messages = new List<string>();
+            messages = new List<LogEntry>();
             predicateEvent = new AutoResetEvent(false);
         }
 
@@ -46,7 +46,7 @@ namespace Antmicro.Renode.RobotFramework
 
             lock(messages)
             {
-                messages.Add($"{entry.ObjectName}: {entry.Message}");
+                messages.Add(entry);
 
                 if(predicate == null)
                 {
@@ -81,11 +81,17 @@ namespace Antmicro.Renode.RobotFramework
             }
         }
 
-        public string WaitForEntry(string pattern, out IEnumerable<string> bufferedMessages, float? timeout = null, bool keep = false, bool treatAsRegex = false, bool pauseEmulation = false)
+        public string WaitForEntry(string pattern, out IEnumerable<string> bufferedMessages, float? timeout = null, bool keep = false, bool treatAsRegex = false,
+            bool pauseEmulation = false, LogLevel level = null)
         {
             var emulation = EmulationManager.Instance.CurrentEmulation;
             var regex = treatAsRegex ? new Regex(pattern) : null;
-            var predicate = treatAsRegex ? (Predicate<string>)(x => regex.IsMatch(x)) : (Predicate<string>)(x => x.Contains(pattern));
+            var predicate = treatAsRegex ? (Predicate<LogEntry>)(x => regex.IsMatch(x.FullMessage)) : (x => x.FullMessage.Contains(pattern));
+            if(level != null)
+            {
+                var innerPredicate = predicate;
+                predicate = x => innerPredicate(x) && x.Type == level;
+            }
             var effectiveTimeout = timeout ?? defaultTimeout;
 
             lock(messages)
@@ -123,7 +129,7 @@ namespace Antmicro.Renode.RobotFramework
             return FlushAndCheckLocked(emulation, predicate, keep, out bufferedMessages);
         }
 
-        private string FlushAndCheckLocked(Emulation emulation, Predicate<string> predicate, bool keep, out IEnumerable<string> bufferedMessages)
+        private string FlushAndCheckLocked(Emulation emulation, Predicate<LogEntry> predicate, bool keep, out IEnumerable<string> bufferedMessages)
         {
             emulation.CurrentLogger.Flush();
             lock(messages)
@@ -131,15 +137,15 @@ namespace Antmicro.Renode.RobotFramework
                 if(TryFind(predicate, keep, out var result))
                 {
                     bufferedMessages = null;
-                    return result;
+                    return result.FullMessage;
                 }
 
-                bufferedMessages = messages.ToList();
+                bufferedMessages = messages.Select(x => x.FullMessage).ToList();
                 return null;
             }
         }
 
-        private bool TryFind(Predicate<string> predicate, bool keep, out string result)
+        private bool TryFind(Predicate<LogEntry> predicate, bool keep, out LogEntry result)
         {
             lock(messages)
             {
@@ -160,10 +166,10 @@ namespace Antmicro.Renode.RobotFramework
         }
 
         private bool pauseEmulation;
-        private Predicate<string> predicate;
+        private Predicate<LogEntry> predicate;
 
         private readonly AutoResetEvent predicateEvent;
-        private readonly List<string> messages;
+        private readonly List<LogEntry> messages;
         private readonly float defaultTimeout;
     }
 }

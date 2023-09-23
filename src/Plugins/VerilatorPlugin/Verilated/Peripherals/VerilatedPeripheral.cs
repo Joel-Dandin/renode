@@ -1,5 +1,5 @@
-﻿//
-// Copyright (c) 2010-2022 Antmicro
+//
+// Copyright (c) 2010-2023 Antmicro
 //
 // This file is licensed under the MIT License.
 // Full license text is available in 'licenses/MIT.txt'.
@@ -20,9 +20,10 @@ namespace Antmicro.Renode.Peripherals.Verilated
 {
     public class VerilatedPeripheral : BaseVerilatedPeripheral, IQuadWordPeripheral, IDoubleWordPeripheral, IWordPeripheral, IBytePeripheral, IBusPeripheral, IDisposable, IHasOwnLife, INumberedGPIOOutput
     {
-        public VerilatedPeripheral(Machine machine, long frequency, int maxWidth, string simulationFilePathLinux = null, string simulationFilePathWindows = null, string simulationFilePathMacOS = null,
+        public VerilatedPeripheral(Machine machine, int maxWidth, long frequency = VerilogTimeunitFrequency, string simulationFilePathLinux = null, string simulationFilePathWindows = null, string simulationFilePathMacOS = null,
+            string simulationContextLinux = null, string simulationContextWindows = null, string simulationContextMacOS = null,
             ulong limitBuffer = LimitBuffer, int timeout = DefaultTimeout, string address = null, int numberOfInterrupts = 0)
-            : base(simulationFilePathLinux, simulationFilePathWindows, simulationFilePathMacOS, timeout, address)
+            : base(simulationFilePathLinux, simulationFilePathWindows, simulationFilePathMacOS, simulationContextLinux, simulationContextWindows, simulationContextMacOS, timeout, address)
         {
             this.machine = machine;
             allTicksProcessedARE = new AutoResetEvent(initialState: false);
@@ -37,7 +38,10 @@ namespace Antmicro.Renode.Peripherals.Verilated
                     AbortAndLogError("Send error!");
                 }
                 this.NoisyLog("Tick: TickClock sent, waiting for the verilated peripheral...");
-                allTicksProcessedARE.WaitOne();
+                if(!allTicksProcessedARE.WaitOne(timeout))
+                {
+                    AbortAndLogError("Timeout reached while waiting for a tick response.");
+                }
                 this.NoisyLog("Tick: Verilated peripheral finished evaluating the model.");
             };
 
@@ -135,21 +139,36 @@ namespace Antmicro.Renode.Peripherals.Verilated
                     HandleInterrupt(message);
                     break;
                 case ActionType.PushByte:
-                    this.Log(LogLevel.Noisy, "Writing data: 0x{0:X} to address: 0x{1:X}", message.Data, message.Address);
+                    this.Log(LogLevel.Noisy, "Writing byte: 0x{0:X} to address: 0x{1:X}", message.Data, message.Address);
                     machine.SystemBus.WriteByte(message.Address, (byte)message.Data);
                     break;
                 case ActionType.PushWord:
-                    this.Log(LogLevel.Noisy, "Writing data: 0x{0:X} to address: 0x{1:X}", message.Data, message.Address);
+                    this.Log(LogLevel.Noisy, "Writing word: 0x{0:X} to address: 0x{1:X}", message.Data, message.Address);
                     machine.SystemBus.WriteWord(message.Address, (ushort)message.Data);
                     break;
                 case ActionType.PushDoubleWord:
-                    this.Log(LogLevel.Noisy, "Writing data: 0x{0:X} to address: 0x{1:X}", message.Data, message.Address);
+                    this.Log(LogLevel.Noisy, "Writing double word: 0x{0:X} to address: 0x{1:X}", message.Data, message.Address);
                     machine.SystemBus.WriteDoubleWord(message.Address, (uint)message.Data);
                     break;
+                case ActionType.PushQuadWord:
+                    this.Log(LogLevel.Noisy, "Writing quad word: 0x{0:X} to address: 0x{1:X}", message.Data, message.Address);
+                    machine.SystemBus.WriteQuadWord(message.Address, message.Data);
+                    break;
+                case ActionType.GetByte:
+                    this.Log(LogLevel.Noisy, "Requested byte from address: 0x{0:X}", message.Address);
+                    Respond(ActionType.WriteToBus, 0, machine.SystemBus.ReadByte(message.Address));
+                    break;
+                case ActionType.GetWord:
+                    this.Log(LogLevel.Noisy, "Requested word from address: 0x{0:X}", message.Address);
+                    Respond(ActionType.WriteToBus, 0, machine.SystemBus.ReadWord(message.Address));
+                    break;
                 case ActionType.GetDoubleWord:
-                    this.Log(LogLevel.Noisy, "Requested data from address: 0x{0:X}", message.Address);
-                    var data = machine.SystemBus.ReadDoubleWord(message.Address);
-                    Respond(ActionType.WriteToBus, 0, data);
+                    this.Log(LogLevel.Noisy, "Requested double word from address: 0x{0:X}", message.Address);
+                    Respond(ActionType.WriteToBus, 0, machine.SystemBus.ReadDoubleWord(message.Address));
+                    break;
+                case ActionType.GetQuadWord:
+                    this.Log(LogLevel.Noisy, "Requested quad word from address: 0x{0:X}", message.Address);
+                    Respond(ActionType.WriteToBus, 0, machine.SystemBus.ReadQuadWord(message.Address));
                     break;
                 case ActionType.TickClock:
                     allTicksProcessedARE.Set();
@@ -181,9 +200,9 @@ namespace Antmicro.Renode.Peripherals.Verilated
 
         protected void Write(ActionType type, long offset, ulong value)
         {
-            if(String.IsNullOrWhiteSpace(simulationFilePath))
+            if(!IsConnected)
             {
-                this.Log(LogLevel.Warning, "Cannot write to peripheral. Set SimulationFilePath first!");
+                this.Log(LogLevel.Warning, "Cannot write to peripheral. Set SimulationFilePath or connect to a simulator first!");
                 return;
             }
             Send(type, (ulong)offset, value);
@@ -192,9 +211,9 @@ namespace Antmicro.Renode.Peripherals.Verilated
 
         protected ulong Read(ActionType type, long offset)
         {
-            if(String.IsNullOrWhiteSpace(simulationFilePath))
+            if(!IsConnected)
             {
-                this.Log(LogLevel.Warning, "Cannot read from peripheral. Set SimulationFilePath first!");
+                this.Log(LogLevel.Warning, "Cannot read from peripheral. Set SimulationFilePath or connect to a simulator first!");
                 return 0;
             }
             Send(type, (ulong)offset, 0);
@@ -223,5 +242,9 @@ namespace Antmicro.Renode.Peripherals.Verilated
         private readonly AutoResetEvent allTicksProcessedARE;
         private readonly LimitTimer timer;
         private const string LimitTimerName = "VerilatorIntegrationClock";
+
+        // The following constant should be in sync with a time unit defined in the `renode` SystemVerilog module.
+        // It allows using simulation time instead of a number of clock ticks.
+        private const long VerilogTimeunitFrequency = 1000000000;
     }
 }
