@@ -38,7 +38,7 @@ Create Machine
 
     Execute Command           set bin @${URL}/zynq--synopsys-dwc-qos-ethernet-vmlinux-s_14385668-e7b88e1decdd7da50b5717f4117ec5ccc9be812f
     Execute Command           set dtb @${URL}/zynq--synopsys-dwc-qos-ethernet-7000.dtb-s_12704-94873f422dba94e96f5e91862e660d508ade8ec1
-    Execute Command           set rootfs @${URL}/zynq--synopsys-dwc-qos-ethernet-rootfs.ext2-s_16777216-a3fc996595a2a2ef2b418c57dc6810409d82f1fd
+    Execute Command           set rootfs @${URL}/zynq--cadence-xspi-rootfs.ext2-s_16777216-65f5f502eb4a970cb0e24b5382a524a99ed9e360
 
     Execute Command           sysbus Redirect 0xC0000000 0x0 0x10000000
 
@@ -152,7 +152,8 @@ Should Transfer File Via TFTP
     # Wait for Read Request
     Wait For Outgoing Packet With Bytes At Index  0000deadbeef02010305040608004500002f__________11____c0a80001c0a80064____17b5001b____00016877006f63746574007473697a65003000________  0  10  10
 
-    Write Line To Uart        diff hw <(echo hello world) > /dev/null && echo success || echo failure
+    # Compare contents, but ignore whitespaces due to OS dependent handling of new line, CR LF vs LF
+    Write Line To Uart        diff -w hw <(echo hello world) > /dev/null && echo success || echo failure
     Wait For Line On Uart     success
 
 Should Send Lots Of Data Via TCP Twice

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -10,13 +10,13 @@
     <StartupObject>Antmicro.Renode.Program</StartupObject>
     <RootNamespace>Antmicro.Renode</RootNamespace>
     <AssemblyName>Renode</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <PropertiesLocation>..\..\output\properties.csproj</PropertiesLocation>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
   </PropertyGroup>
   <Import Project="$(PropertiesLocation)" />
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <LangVersion>7</LangVersion>
+    <LangVersion>7.2</LangVersion>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
@@ -28,7 +28,7 @@
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <LangVersion>7</LangVersion>
+    <LangVersion>7.2</LangVersion>
     <DebugType>full</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>..\..\output\bin\Release</OutputPath>
@@ -171,19 +171,19 @@
       <Project>{C56AABEF-C01E-493F-A65F-09A572FE9B2E}</Project>
       <Name>OptionsParser</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\lib\xwt\Xwt\Xwt.csproj">
+    <ProjectReference Include="..\..\lib\termsharp\xwt\Xwt\Xwt.csproj">
       <Project>{92494904-35FA-4DC9-BDE9-3A3E87AC49D3}</Project>
       <Name>Xwt</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\lib\xwt\Xwt.Gtk\Xwt.Gtk.csproj" Condition=" $(CurrentPlatform) != 'Windows' And $(GUI_DISABLED) != 'true' ">
+    <ProjectReference Include="..\..\lib\termsharp\xwt\Xwt.Gtk\Xwt.Gtk.csproj" Condition=" $(CurrentPlatform) != 'Windows' And $(GUI_DISABLED) != 'true' ">
       <Project>{C3887A93-B2BD-4097-8E2F-3A063EFF32FD}</Project>
       <Name>Xwt.Gtk</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\lib\xwt\Xwt.WPF\Xwt.WPF.csproj" Condition=" $(CurrentPlatform) == 'Windows' And $(GUI_DISABLED) != 'true' ">
+    <ProjectReference Include="..\..\lib\termsharp\xwt\Xwt.WPF\Xwt.WPF.csproj" Condition=" $(CurrentPlatform) == 'Windows' And $(GUI_DISABLED) != 'true' ">
       <Project>{c93d746e-1586-4d4f-b411-bf5a966e6a08}</Project>
       <Name>Xwt.WPF</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\lib\termsharp\TermSharp-working_copy.csproj">
+    <ProjectReference Include="..\..\lib\termsharp\TermSharp.csproj">
       <Project>{25FAECC1-55F0-4608-88BD-4207A7F993B0}</Project>
       <Name>TermSharp</Name>
     </ProjectReference>

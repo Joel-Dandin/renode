@@ -29,9 +29,12 @@ OS_NAME=linux
 SED_COMMAND="sed -i"
 . common_copy_files.sh
 
+PYTHONVERSION=3.8
+
 COMMON_SCRIPT=$DIR/tests/common.sh
 TEST_SCRIPT=linux/renode-test
-copy_bash_tests_scripts $TEST_SCRIPT $COMMON_SCRIPT
+RUNNER=mono
+copy_bash_tests_scripts $TEST_SCRIPT $COMMON_SCRIPT $RUNNER
 
 COMMAND_SCRIPT=linux/renode
 echo "#!/bin/sh" > $COMMAND_SCRIPT
@@ -39,7 +42,7 @@ echo "MONOVERSION=$MONOVERSION" >> $COMMAND_SCRIPT
 echo "REQUIRED_MAJOR=$MONO_MAJOR" >> $COMMAND_SCRIPT
 echo "REQUIRED_MINOR=$MONO_MINOR" >> $COMMAND_SCRIPT
 # skip the first line (with the hashbang)
-tail -n +2 linux/renode-template >> $COMMAND_SCRIPT
+tail -n +2 linux/renode-mono-template >> $COMMAND_SCRIPT
 chmod +x $COMMAND_SCRIPT
 
 PACKAGES=output/packages
@@ -70,7 +73,7 @@ GENERAL_FLAGS=(\
 
 ### create debian package
 fpm -s dir -t deb\
-    -d "mono-complete >= $MONOVERSION" -d gtk-sharp2 -d screen -d policykit-1 -d libc6-dev -d gcc -d python3 -d python3-pip \
+    -d "mono-complete >= $MONOVERSION" -d "python3 >= $PYTHONVERSION" -d python3-pip -d gtk-sharp2 -d screen -d policykit-1 -d libc6-dev -d gcc \
     --deb-no-default-config-files \
     "${GENERAL_FLAGS[@]}" >/dev/null
 
@@ -81,7 +84,7 @@ echo "Created a Debian package in $PACKAGES/$deb"
 ### create rpm package
 #redhat-rpm-config is apparently required for GCC to work in Docker images
 fpm -s dir -t rpm\
-    -d "mono-complete >= $MONOVERSION" -d gcc -d redhat-rpm-config -d python3-devel -d python3-pip -d gtk-sharp2 -d screen -d beesu \
+    -d "mono-complete >= $MONOVERSION" -d "python3-devel >= $PYTHONVERSION" -d python3-pip -d gcc -d redhat-rpm-config -d gtk-sharp2 -d screen -d polkit \
     "${GENERAL_FLAGS[@]}" >/dev/null
 
 rpm=(renode*rpm)
