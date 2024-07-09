@@ -7,14 +7,54 @@ cpu: CPU.CortexM @ sysbus
     cpuType: "cortex-m85"
     nvic: nvic
 
-code_flash: Memory.MappedMemory @ sysbus 0x0
-    size: 0x200000
+itcm: Memory.MappedMemory @ {
+        sysbus 0x00000000;
+        sysbus 0x10000000
+    }
+    size: 0x10000
 
-data_flash: Memory.MappedMemory @ sysbus 0x8000000
-    size: 0x2000
+code_flash: Memory.MappedMemory @ {
+        sysbus 0x02000000;
+        sysbus 0x12000000
+    }
+    size: 0x2F8000
 
-sram: Memory.MappedMemory @ sysbus 0x20000000
-    size: 0x80000
+factory_flash: Memory.MappedMemory @ {
+        sysbus 0x03008000;
+        sysbus 0x13008000
+    }
+    // Size should be 0x2300, but the registered memory region has to be aligned to page boundaries
+    size: 0x2400
+
+dtcm: Memory.MappedMemory @ {
+        sysbus 0x30000000;
+        sysbus 0x20000000
+    }
+    size: 0x10000
+
+sram: Memory.MappedMemory @ {
+        sysbus 0x22000000;
+        sysbus 0x32000000
+    }
+    size: 0xE0000
+
+standby_sram: Memory.MappedMemory @ {
+        sysbus 0x26000000;
+        sysbus 0x36000000
+    }
+    size: 0x400
+
+data_flash: Memory.MappedMemory @ {
+        sysbus 0x27000000;
+        sysbus 0x37000000
+    }
+    size: 0x3000
+
+option_setting: Memory.ArrayMemory @ {
+        sysbus 0x27030050;
+        sysbus 0x37030050
+    }
+    size: 0x3B0
 
 icu: IRQControllers.RenesasRA_ICU @ sysbus 0x4000c000
     nvic: nvic
@@ -48,9 +88,44 @@ agt1: Timers.RenesasRA_AGT @ sysbus 0x40221100
     CompareMatchA -> icu@0x04A
     CompareMatchB -> icu@0x04B
 
-sci0: UART.RenesasRA_SCI @ sysbus <0x40358000,0x4035808b>
+sci0: UART.RenesasRA8M1_SCI @ sysbus 0x40358000
+    frequency: 8_000_000
+    ReceiveIRQ -> icu@0x124
+    TransmitIRQ -> icu@0x125
+    TransmitEndIRQ -> icu@0x126
 
-portMisc: GPIOPort.RenesasRA_GPIOMisc @ sysbus 0x40040D00
+sci1: UART.RenesasRA8M1_SCI @ sysbus 0x40358100
+    frequency: 8_000_000
+    ReceiveIRQ -> icu@0x12B
+    TransmitIRQ -> icu@0x12C
+    TransmitEndIRQ -> icu@0x12D
+
+sci2: UART.RenesasRA8M1_SCI @ sysbus 0x40358200
+    frequency: 8_000_000
+    ReceiveIRQ -> icu@0x132
+    TransmitIRQ -> icu@0x133
+    TransmitEndIRQ -> icu@0x134
+
+sci3: UART.RenesasRA8M1_SCI @ sysbus 0x40358300
+    frequency: 8_000_000
+    ReceiveIRQ -> icu@0x139
+    TransmitIRQ -> icu@0x13A
+    TransmitEndIRQ -> icu@0x13B
+
+sci4: UART.RenesasRA8M1_SCI @ sysbus 0x40358400
+    frequency: 8_000_000
+    ReceiveIRQ -> icu@0x140
+    TransmitIRQ -> icu@0x141
+    TransmitEndIRQ -> icu@0x142
+
+sci9: UART.RenesasRA8M1_SCI @ sysbus 0x40358900
+    frequency: 8_000_000
+    ReceiveIRQ -> icu@0x163
+    TransmitIRQ -> icu@0x164
+    TransmitEndIRQ -> icu@0x165
+
+portMisc: GPIOPort.RenesasRA_GPIOMisc @ sysbus 0x40400D00
+    version: Version.RA8
 
 port0: GPIOPort.RenesasRA8_GPIO @ {
         sysbus 0x40400000;
@@ -352,6 +427,25 @@ portB: GPIOPort.RenesasRA8_GPIO @ {
     IRQ14 -> icu@15
     IRQ15 -> icu@16
 
+// This is an 8-bit register. During initialization we sometimes require
+// this register to first be 0 and then non 0. Hence the use of flipflop.
+SYSC_SCICKCR: Python.PythonPeripheral @ sysbus 0x4001e055
+    size: 0x1
+    initable: true
+    filename: "scripts/pydev/flipflop.py"
+
+iic0: I2C.RenesasRA_IIC @ sysbus 0x4025e000
+    ReceiveIRQ -> icu@0x05C
+    TransmitIRQ -> icu@0x05D
+    TransmitEndIRQ -> icu@0x05E
+    ErrorOrEventIRQ -> icu@0x05F
+
+iic1: I2C.RenesasRA_IIC @ sysbus 0x4025e100
+    ReceiveIRQ -> icu@0x061
+    TransmitIRQ -> icu@0x062
+    TransmitEndIRQ -> icu@0x063
+    ErrorOrEventIRQ -> icu@0x064
+
 sysbus:
     init:
         Tag <0x40000000,0x40000e43> "RMPU" // Renesas Memory Protection Unit
@@ -367,6 +461,7 @@ sysbus:
         Tag <0x4001b000,0x4001b317> "CPU_DBG" // Debug Function
         Tag <0x4001c100,0x4001c143> "FCACHE" // Flash Cache
         Tag <0x4001e000,0x4001ee2b> "SYSC" // System Control
+        Tag <0x4001e03c,0x4001e03d> "OSCSF" 0x69 // Oscillation Stabilization Flag Register
         Tag <0x4011b17c,0x4011b183> "TSD" // Temperature Sensor Data
         Tag <0x4011c000,0x4011c043> "FLAD" // Data Flash
         Tag <0x4011e000,0x4011e817> "FACI" // Flash Application Command Interface
@@ -384,9 +479,6 @@ sysbus:
         Tag <0x40250000,0x40250527> "USBFS" // USB 2.0 FS Module
         Tag <0x40252000,0x40252213> "SDHI0" // SD Host Interface 0
         Tag <0x4025d000,0x4025d037> "SSIE0" // Serial Sound Interface Enhanced (SSIE)
-        Tag <0x4025e000,0x4025e023> "IIC0" // Inter-Integrated Circuit 0
-        Tag <0x4025e014,0x4025e01b> "IIC0WU" // Inter-Integrated Circuit 0 Wake-up Unit
-        Tag <0x4025e100,0x4025e123> "IIC1" // Inter-Integrated Circuit 1
         Tag <0x40268000,0x4026823b> "xSPI" // eXpanded SPI
         Tag <0x40310000,0x4031000f> "CRC" // CRC Calculator
         Tag <0x40311000,0x4031101b> "DOC" // Data Operation Circuit-4

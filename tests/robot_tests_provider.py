@@ -263,6 +263,8 @@ class RobotTestSuite(object):
     retry_suite_regex = re.compile(r"|".join((
             r"\[Errno \d+\] Connection refused",
             r"Connection to remote server broken: \[WinError \d+\]",
+            r"Connecting remote server at [^ ]+ failed",
+            "Getting keyword names from library 'Remote' failed",
     )))
 
     def __init__(self, path):
@@ -656,6 +658,18 @@ class RobotTestSuite(object):
             for suite in root.iter('suite'):
                 if not suite.get('source', False):
                     continue # it is a tag used to group other suites without meaning on its own
+
+                # Always retry if our Setup failed.
+                for kw in suite.iter('kw'):
+                    if kw.get('name') == 'Setup' and kw.get('library') == 'renode-keywords':
+                        if kw.find('status').get('status') != 'PASS':
+                            print('Renode Setup failure detected!')
+                            return True
+                        else:
+                            break
+
+                # Look for regular expressions signifying a crash.
+                # Suite Setup and Suite Teardown aren't checked here cause they're in the `kw` tags.
                 for test in suite.iter('test'):
                     status = test.find('status') # only finds immediate children - important requirement
                     if status.text is not None and self.retry_suite_regex.search(status.text):

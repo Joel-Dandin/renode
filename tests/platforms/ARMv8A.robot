@@ -17,7 +17,7 @@ Create Machine
     Execute Command               mach create
     Execute Command               machine LoadPlatformDescription @platforms/cpus/cortex-a53-gicv${gic_version}.repl
 
-    Create Terminal Tester        ${UART}
+    Create Terminal Tester        ${UART}  defaultPauseEmulation=True
     Execute Command               showAnalyzer ${UART}
 
 Step And Verify Accumulator
@@ -55,6 +55,17 @@ Verify Timer Register
     Wait For Log Entry            Read from ${timer_register_name}
 
 *** Test Cases ***
+Should Get Correct EL and SS on CPU Creation
+    # This platform uses `Cortex-A53` CPU - ARMv8A
+    # We only check if EL and SS are reflected correctly on C# side, for their usage in peripherals
+    Create Machine
+
+    ${ss}=                             Execute Command  sysbus.cpu SecurityState
+    ${el}=                             Execute Command  sysbus.cpu ExceptionLevel
+
+    Should Be Equal As Strings         ${ss.split()[0].strip()}  Secure
+    Should Be Equal As Strings         ${el.split()[0].strip()}  EL3_MonitorMode
+
 Test Accessing ARM Generic Timer Registers Through AArch64 System Registers
     Create Machine
     Create Log Tester             0
@@ -131,8 +142,6 @@ Test Accessing System Registers
 
 Test CRC32X
     Create Machine
-    Execute Command               cpu ExecutionMode SingleStepBlocking
-    Start Emulation
 
     Execute Command               sysbus WriteDoubleWord 0x0 0x9ac34c00  # crc32x  w0, w0, x3
     Execute Command               sysbus WriteDoubleWord 0x4 0x9ac44c00  # crc32x  w0, w0, x4
@@ -153,8 +162,6 @@ Test CRC32X
 
 Test CRC32CX
     Create Machine
-    Execute Command               cpu ExecutionMode SingleStepBlocking
-    Start Emulation
 
     Execute Command               sysbus WriteDoubleWord 0x0 0x9ac35c00  # crc32cx  w0, w0, x3
     Execute Command               sysbus WriteDoubleWord 0x4 0x9ac45c00  # crc32cx  w0, w0, x4
@@ -173,16 +180,18 @@ Test Running the Hello World Zephyr Sample
     Create Machine
     Execute Command               sysbus LoadELF ${ZEPHYR_HELLO_WORLD_ELF}
 
-    Start Emulation
-
     Wait For Line On Uart         Booting Zephyr OS
+    Provides                      zephyr-hello-world-after-booting
+    Wait For Line On Uart         Hello World!
+
+Test Resuming Zephyr Hello World After Deserialization
+    Requires                      zephyr-hello-world-after-booting
+    Execute Command               showAnalyzer ${UART}
     Wait For Line On Uart         Hello World!
 
 Test Running the Zephyr Synchronization Sample
     Create Machine
     Execute Command               sysbus LoadELF ${ZEPHYR_SYNCHRONIZATION_ELF}
-
-    Start Emulation
 
     Wait For Line On Uart         Booting Zephyr OS
     Wait For Line On Uart         thread_a: Hello World from cpu 0
@@ -194,8 +203,6 @@ Test Running the Zephyr Philosophers Sample
     Create Machine
     Execute Command               sysbus LoadELF ${ZEPHYR_PHILOSOPHERS_ELF}
 
-    Start Emulation
-
     Wait For Line On Uart         Booting Zephyr OS
     Wait For Line On Uart         Philosopher 5.*STARVING  treatAsRegex=true
     Wait For Line On Uart         Philosopher 5.*HOLDING ONE FORK  treatAsRegex=true
@@ -205,8 +212,6 @@ Test Running the Zephyr Philosophers Sample
 Test Running the Zephyr Kernel FPU Sharing Generic Test
     Create Machine
     Execute Command               sysbus LoadELF ${ZEPHYR_FPU_SHARING_ELF}
-
-    Start Emulation
 
     Wait For Line On Uart         Booting Zephyr OS
     Wait For Line On Uart         Running TESTSUITE fpu_sharing_generic
@@ -230,8 +235,6 @@ Test Running the seL4 Adder Sample
     Execute Command               ${UART} WriteDoubleWord 0x30 0x301
     # Set 7-bit word length to hush the warning that 5-bit WLEN is unsupported.
     Execute Command               ${UART} WriteDoubleWord 0x2c 0x40  #b10 << 5
-
-    Start Emulation
 
     Wait For Line On Uart         Booting all finished, dropped to user space
     Wait For Line On Uart         client: what's the answer to 342 + 74 + 283 + 37 + 534 ?

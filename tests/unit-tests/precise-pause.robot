@@ -85,7 +85,22 @@ Terminal Tester Assert Should Precisely Pause Emulation
     Should Be Equal          ${l.groups[0]}  6401
 
     Emulation Should Be Paused At Time  00:00:00.000226
-    PC Should Be Equal       0x8002c08  # this is the STR that writes to TDR in LL_USART_TransmitData8
+    PC Should Be Equal       0x8002c0a  # this is the next instruction after STR that writes to TDR in LL_USART_TransmitData8
+
+Emulation Should Pause Precisely Between Translation Blocks
+    Create Machine With Button And LED  button
+    # Forcing all blocks to contain a single instruction will force the precise pauses to be handled between blocks
+    Execute Command          cpu MaximumBlockSize 1
+
+    Wait For Line On Uart    Press the button  pauseEmulation=true
+
+    Execute Command          gpioPortB.button Press
+
+    ${l}=                    Wait For Line On Uart  Button pressed at (\\d+)  pauseEmulation=true  treatAsRegex=true
+    Should Be Equal          ${l.groups[0]}  6401
+
+    Emulation Should Be Paused At Time  00:00:00.000226
+    PC Should Be Equal       0x8002c0a  # this is the next instruction after STR that writes to TDR in LL_USART_TransmitData8
 
 Quantum Should Not Impact Tester Pause PC
     Create Machine With Button And LED  button
@@ -97,7 +112,7 @@ Quantum Should Not Impact Tester Pause PC
 
     Wait For Line On Uart    Button pressed at (\\d+)  pauseEmulation=true  treatAsRegex=true
 
-    PC Should Be Equal       0x8002c08
+    PC Should Be Equal       0x8002c0a
 
 RunFor Should Work After Precise Pause
     Create Machine With Button And LED  button
@@ -134,11 +149,11 @@ LED Tester Assert Should Precisely Pause Emulation
 
     Assert LED State         true  pauseEmulation=true
     Emulation Should Be Paused At Time  00:00:00.000120
-    PC Should Be Equal       0x8002a46  # this is the STR that writes to BSRR in gpio_stm32_port_set_bits_raw
+    PC Should Be Equal       0x8002a48  # this is the next instruction after STR that writes to BSRR in gpio_stm32_port_set_bits_raw
 
     Assert LED State         false  pauseEmulation=true
     Emulation Should Be Paused At Time  00:00:01.000211
-    PC Should Be Equal       0x80028a2  # this is the STR that writes to BRR in LL_GPIO_ResetOutputPin
+    PC Should Be Equal       0x80028a4  # this is the next instruction after STR that writes to BRR in LL_GPIO_ResetOutputPin
 
     Provides                 synced-blinky
 
@@ -172,14 +187,14 @@ LED And Terminal Testers Should Cooperate
     Write Line To Uart       led on leds 0  waitForEcho=false
     Wait For Line On Uart    leds: turning on LED 0  pauseEmulation=true
     Emulation Should Be Paused At Time  00:00:00.001239
-    PC Should Be Equal       0x800b26a
+    PC Should Be Equal       0x800b26c
     # The LED should not be turned on yet: the string is printed before actually changing the GPIO
     Assert LED State         false  0
 
     # Now wait for the LED to turn on
     Assert LED State         true  pauseEmulation=true
     Emulation Should Be Paused At Time  00:00:00.001243
-    PC Should Be Equal       0x800af0a
+    PC Should Be Equal       0x800af0c
 
 LED Tester Assertion Triggered By PWM Should Not Log Errors
     Create Log Tester        0
@@ -197,3 +212,35 @@ LED Tester Assertion Triggered By PWM Should Not Log Errors
     # There should be a warning but no errors
     Wait For Log Entry       Failed to restart translation block for precise pause  keep=true
     Should Not Be In Log     ${EMPTY}  level=Error
+
+Log Tester Assert Should Precisely Pause Emulation
+    Create Log Tester        5
+    Create Machine With Button And LED  pwm_shell  led_port=B  led_pin=10
+
+    ${pwm}=  Wait For Line On Uart  pwm device: (\\w+)  treatAsRegex=true  pauseEmulation=true
+    ${pwm}=  Set Variable    ${pwm.groups[0]}
+
+    Write Line To Uart       pwm cycles ${pwm} 3 256 127  waitForEcho=false
+
+    Provides                 waiting-for-unhandled-write-log
+
+    Wait For Log Entry       Unhandled write to offset 0x1C.  pauseEmulation=true
+    Emulation Should Be Paused At Time  00:00:00.001297
+
+    Provides                 paused-at-log-assertion
+
+Log Tester Should Not Be In Log Assert Should Precisely Pause Emulation
+    Requires                 paused-at-log-assertion
+
+    Should Not Be In Log     No such random message in log  timeout=2  pauseEmulation=true
+    # The time gets rounded to the sync point
+    Emulation Should Be Paused At Time  00:00:02.001300
+
+Log Tester Should Not Be In Log Assert Should Not Pause Emulation Later If The Matching String Actually Gets Logged
+    Requires                 waiting-for-unhandled-write-log
+
+    Run Keyword And Expect Error  *Unexpected line detected in the log*  Should Not Be In Log  Unhandled write to offset 0x1C.  timeout=2  pauseEmulation=true
+    Emulation Should Be Paused At Time  00:00:00.001297
+
+    Execute Command  emulation RunFor "3"
+    Emulation Should Be Paused At Time  00:00:03.001297

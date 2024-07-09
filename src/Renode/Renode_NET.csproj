@@ -12,6 +12,7 @@
     <LangVersion>7.2</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" $(PORTABLE) == 'true' ">
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <UseAppHost>true</UseAppHost>
     <IncludeNativeLibrariesInSingleFile>true</IncludeNativeLibrariesInSingleFile>
@@ -51,7 +52,6 @@
     <ProjectReference Include="..\Infrastructure\src\Emulator\Cores\cores-sparc_NET.csproj"/>
     <ProjectReference Include="..\Infrastructure\src\Emulator\Cores\cores-riscv_NET.csproj"/>
     <ProjectReference Include="..\Infrastructure\src\Emulator\Peripherals\Peripherals_NET.csproj"/>
-    <ProjectReference Include="..\Infrastructure\src\Plugins\AdvancedLoggerViewerPlugin\AdvancedLoggerViewerPlugin_NET.csproj" Condition=" $(GUI_DISABLED) != 'true' "/>
     <ProjectReference Include="..\Infrastructure\src\Plugins\SampleCommandPlugin\SampleCommandPlugin_NET.csproj"/>
     <ProjectReference Include="..\Infrastructure\src\Plugins\TracePlugin\TracePlugin_NET.csproj"/>
     <ProjectReference Include="..\Plugins\WiresharkPlugin\WiresharkPlugin_NET.csproj"/>

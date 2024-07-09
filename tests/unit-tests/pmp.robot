@@ -1,15 +1,15 @@
 *** Variables ***
 ${MTVEC}                            0x80080000
 
-${RV32_PRIV10}=     SEPARATOR=
-...  """                                                                ${\n}
-...  cpu: CPU.RiscV32 @ sysbus                                          ${\n}
-...  ${SPACE*4}cpuType: "rv32gcv"                                       ${\n}
-...  ${SPACE*4}privilegeArchitecture: PrivilegeArchitecture.Priv1_10    ${\n}
-...  ${SPACE*4}timeProvider: empty                                      ${\n}
-...                                                                     ${\n}
-...  dram: Memory.MappedMemory @ sysbus 0x80000000                      ${\n}
-...  ${SPACE*4}size: 0x06400000                                         ${\n}
+${RV32_PRIV10}=     SEPARATOR=${\n}
+...  """
+...  cpu: CPU.RiscV32 @ sysbus
+...  ${SPACE*4}cpuType: "rv32gcv"
+...  ${SPACE*4}privilegedArchitecture: PrivilegedArchitecture.Priv1_10
+...  ${SPACE*4}timeProvider: empty
+...
+...  dram: Memory.MappedMemory @ sysbus 0x80000000
+...  ${SPACE*4}size: 0x06400000
 ...  """
 
 
@@ -26,8 +26,6 @@ Create RV32PRIV10 Machine
 Prepare RV32 State
     Execute Command                     cpu MTVEC ${MTVEC}
     Execute Command                     cpu PC 0x80000000
-    Execute Command                     cpu ExecutionMode SingleStepBlocking
-    Execute Command                     start
 
 Step Once And Ensure Not Trapped
     [Arguments]                         ${trap_adress}
